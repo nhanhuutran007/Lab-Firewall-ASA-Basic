@@ -1,0 +1,159 @@
+Bước 1: Cấu hình Router Internet
+
+enable
+configure terminal
+hostname INTERNET
+
+interface Gi0/0
+ ip address 100.0.0.1 255.255.255.252
+ no shutdown
+
+interface Gi0/1
+ ip address 200.0.0.1 255.255.255.252
+ no shutdown
+
+interface loopback 0
+ ip address 8.8.8.8 255.255.255.255
+exit
+
+
+Bước 2: Cấu hình ASA-01
+
+enable
+configure terminal
+hostname ASA-01
+
+# 1. Cấu hình quản trị (Mgmt0/0 theo ảnh)
+interface Management0/0
+ nameif mgmt
+ security-level 100
+ ip address 192.168.137.11 255.255.255.0
+ no shutdown
+exit
+
+username admin password cisco privilege 15
+http server enable
+http 192.168.137.0 255.255.255.0 mgmt
+
+# 2. Cấu hình các cổng Data (Gi0/0 và Gi0/1 theo ảnh)
+interface GigabitEthernet0/0
+ nameif outside
+ security-level 0
+ ip address 100.0.0.2 255.255.255.252
+ no shutdown
+
+interface GigabitEthernet0/1
+ nameif inside
+ security-level 100
+ ip address 192.168.1.1 255.255.255.0
+ no shutdown
+
+# 3. Định tuyến và DHCP
+route outside 0.0.0.0 0.0.0.0 100.0.0.1
+dhcpd address 192.168.1.10-192.168.1.100 inside
+dhcpd enable inside
+
+# 4. NAT PAT và ICMP (Policy)
+object network LAN-01
+ subnet 192.168.1.0 255.255.255.0
+ nat (inside,outside) dynamic interface
+
+policy-map global_policy
+ class inspection_default
+  inspect icmp
+
+Bước 3: Cấu hình ASA-02 
+
+enable
+configure terminal
+hostname ASA-02
+
+# 1. Cấu hình quản trị
+interface Management0/0
+ nameif mgmt
+ security-level 100
+ ip address 192.168.137.12 255.255.255.0
+ no shutdown
+exit
+
+username admin password cisco privilege 15
+http server enable
+http 192.168.137.0 255.255.255.0 mgmt
+
+# 2. Cấu hình các cổng Data (Gi0/0 và Gi0/1 theo ảnh)
+interface GigabitEthernet0/0
+ nameif outside
+ security-level 0
+ ip address 200.0.0.2 255.255.255.252
+ no shutdown
+
+interface GigabitEthernet0/1
+ nameif inside
+ security-level 100
+ ip address 192.168.2.1 255.255.255.0
+ no shutdown
+
+# 3. Định tuyến và DHCP
+route outside 0.0.0.0 0.0.0.0 200.0.0.1
+dhcpd address 192.168.2.10-192.168.2.100 inside
+dhcpd enable inside
+
+# 4. NAT PAT và ICMP
+object network LAN-02
+ subnet 192.168.2.0 255.255.255.0
+ nat (inside,outside) dynamic interface
+
+policy-map global_policy
+ class inspection_default
+  inspect icmp
+
+Bước 4: Cấu hình Site-to-Site VPN (Điều chỉnh NAT Exempt)
+Tại ASA-01:
+
+object network LAN-02-REMOTE
+ subnet 192.168.2.0 255.255.255.0
+
+# Lệnh NAT Exempt (Ưu tiên hàng đầu cho VPN)
+nat (inside,outside) source static LAN-01 LAN-01 destination static LAN-02-REMOTE LAN-02-REMOTE
+
+# Cấu hình Crypto (IKEv1)
+crypto ikev1 policy 10
+ authentication pre-share
+ encryption aes
+ hash sha
+ group 2
+tunnel-group 200.0.0.2 type ipsec-l2l
+tunnel-group 200.0.0.2 ipsec-attributes
+ ikev1 pre-shared-key cisco
+
+access-list VPN-ACL extended permit ip 192.168.1.0 255.255.255.0 192.168.2.0 255.255.255.0
+crypto ipsec ikev1 transform-set MY-SET esp-aes esp-sha-hmac
+crypto map MY-MAP 10 match address VPN-ACL
+crypto map MY-MAP 10 set peer 200.0.0.2
+crypto map MY-MAP 10 set ikev1 transform-set MY-SET
+crypto map MY-MAP interface outside
+crypto ikev1 enable outside
+
+Tại ASA-02: (Đảo ngược địa chỉ)
+
+object network LAN-01-REMOTE
+ subnet 192.168.1.0 255.255.255.0
+
+nat (inside,outside) source static LAN-02 LAN-02 destination static LAN-01-REMOTE LAN-01-REMOTE
+
+crypto ikev1 policy 10
+ authentication pre-share
+ encryption aes
+ hash sha
+ group 2
+tunnel-group 100.0.0.2 type ipsec-l2l
+tunnel-group 100.0.0.2 ipsec-attributes
+ ikev1 pre-shared-key cisco
+
+access-list VPN-ACL extended permit ip 192.168.2.0 255.255.255.0 192.168.1.0 255.255.255.0
+crypto ipsec ikev1 transform-set MY-SET esp-aes esp-sha-hmac
+crypto map MY-MAP 10 match address VPN-ACL
+crypto map MY-MAP 10 set peer 100.0.0.2
+crypto map MY-MAP 10 set ikev1 transform-set MY-SET
+crypto map MY-MAP interface outside
+crypto ikev1 enable outside
