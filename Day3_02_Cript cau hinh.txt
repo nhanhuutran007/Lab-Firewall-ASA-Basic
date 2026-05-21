@@ -1,0 +1,222 @@
+Router Internet:
+
+enable
+configure terminal
+hostname INTERNET
+
+interface Gi0/0
+ ip address 100.0.0.1 255.255.255.252
+ no shutdown
+exit
+
+interface Gi0/1
+ ip address 200.0.0.1 255.255.255.252
+ no shutdown
+exit
+
+interface loopback0
+ ip address 8.8.8.8 255.255.255.255
+exit
+
+ip route 192.168.202.0 255.255.255.0 200.0.0.2
+end
+write memory
+
+
+Router R1: 
+
+enable
+configure terminal
+hostname R1
+
+interface Gi0/0
+ ip address 100.0.0.2 255.255.255.252
+ ip nat outside
+ no shutdown
+exit
+
+interface Gi0/1
+ ip address 192.168.101.254 255.255.255.0
+ ip nat inside
+ no shutdown
+exit
+
+ip dhcp excluded-address 192.168.101.254
+!
+ip dhcp pool LAN
+ network 192.168.101.0 255.255.255.0
+ default-router 192.168.101.254
+ dns-server 8.8.8.8
+exit
+
+ip route 0.0.0.0 0.0.0.0 100.0.0.1
+
+access-list 1 permit 192.168.101.0 0.0.0.255
+ip nat inside source list 1 interface Gi0/0 overload
+end
+write memory
+
+
+
+ASA:
+
+enable
+configure terminal
+hostname CiscoASA
+
+interface Management0/0
+ nameif mgmt
+ security-level 100
+ ip address 192.168.137.11 255.255.255.0
+ no shutdown
+exit
+
+username admin password cisco 
+http server enable
+http 192.168.137.0 255.255.255.0 mgmt
+end
+write memory
+
+
+
+
+
+
+CISCO ASA ASDM GUI LOGICAL FLOW (VIA PC-3 MANAGEMENT PC)
+INTERFACE CONFIGURATION
+Menu Path: Configuration > Device Setup > Interface Settings > Interfaces
+
+1. Edit Gi0/1 (Connected to INTERNET Gi0/1):
+   Nameif: outside
+   Security Level: 0
+   IP Address: Static IP -> 200.0.0.2
+   Subnet Mask: 255.255.255.252
+   Check: Enable Interface
+   Click: OK
+
+2. Edit Gi0/0 (Connected to PC-3):
+   Nameif: inside
+   Security Level: 100
+   IP Address: Static IP -> 192.168.202.1
+   Subnet Mask: 255.255.255.0
+   Check: Enable Interface
+   Click: OK
+
+Click: Apply
+
+
+DHCP SERVER FOR PC-3
+Menu Path: Configuration > Device Management > DHCP > DHCP Server
+
+1. Select Tab: DHCP Server
+2. Click: Add
+   Interface: inside
+   Address Pool: 192.168.202.10 - 192.168.202.100
+   Check: Enable DHCP Server on inside interface
+   Primary DNS: 8.8.8.8
+   Click: OK
+
+Click: Apply
+
+STATIC ROUTE TO INTERNET
+Menu Path: Configuration > Device Setup > Routing > Static Route
+
+1. Click: Add
+   Interface Name: outside
+   Network: any (0.0.0.0/0)
+   Gateway IP: 200.0.0.1
+   Click: OK
+
+Click: Apply
+
+
+FIREWALL NAT RULES (PAT FOR PC-3)
+Menu Path: Configuration > Firewall > NAT Rules
+
+1. Click: Add > Add NAT Rule
+   Source Interface: inside
+   Destination Interface: outside
+   Source Address: inside-network (192.168.202.0/24)
+   Destination Address: any
+   Service: any
+   Translated Source: Dynamic PAT (Hide) -> Interface IP
+   Click: OK
+
+Click: Apply
+
+
+ICMP POLICY INSPECTION (ENABLE PING)
+Menu Path: Configuration > Firewall > Service Policy Rules
+
+1. Select: inspection_default
+2. Click: Edit
+3. Go to Tab: Rule Actions
+4. Check Box: ICMP
+5. Click: OK
+
+Click: Apply
+
+
+REMOTE ACCESS VPN CONFIGURATION FLOW ON ASA (ASDM WIZARD)
+Menu Path: Wizards > VPN Wizards > AnyConnect VPN Wizard...
+
+1. Introduction Screen:
+   Click: Next
+
+2. Connection Profile Identification:
+   Connection Profile Name: Remote_Access
+   VPN Access Interface: outside
+   Click: Next
+
+3. VPN Protocols:
+   Check: SSL
+   Check: IPsec
+   Device Certificate: Click 'Manage...' -> Add 'ASDM_TrustPoint0' (Self-Signed)
+   Click: Next
+
+4. Client Images:
+   Click: Add -> Upload / Browse Flash -> select 'anyconnect-win-*.pkg'
+   Click: OK
+   Click: Next
+
+5. Authentication Methods:
+   AAA Server Group: LOCAL
+   User to be Added:
+     Username: thinhnp
+     Password: vpnpassword
+   Click: Add >>
+   Click: Next
+
+6. Client Address Assignment:
+   Click: New...
+     Name: RMA_Pool
+     Starting IP Address: 192.168.202.250
+     Ending IP Address: 192.168.202.254
+     Subnet Mask: 255.255.255.0
+   Click: OK
+   Click: Next
+
+7. Network Name Resolution Servers:
+   DNS Servers: 8.8.8.8
+   Click: Next
+
+8. NAT Exempt:
+   Check Box: Exempt VPN traffic from network address translation
+   Inside Interface: inside
+   Local Network: LOCAL_LAN (192.168.202.0/24 object)
+   Click: Next
+
+9. Summary Screen:
+   Click: Finish
+
+Action: Click 'Save' icon on ASDM top bar to execute 'write memory' equivalent.
+
+
+
+
+
+
+
+
+
+

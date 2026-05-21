@@ -1,0 +1,148 @@
+Cấu hình trên Switch (SW)
+
+configure terminal
+hostname Switch
+interface range Gi0/0 - 2
+switchport mode access
+no shutdown
+exit
+
+Cấu hình trên ASAv2 (Thiết bị Primary)
+
+configure terminal
+hostname ASAv2
+
+interface Management0/0
+nameif mgmt
+security-level 100
+ip address 192.168.137.101 255.255.255.0
+no shutdown
+exit
+
+http server enable
+http 192.168.137.0 255.255.255.0 mgmt
+username admin password cisco privilege 15
+
+interface GigabitEthernet0/0
+nameif inside
+security-level 100
+ip address 192.168.1.1 255.255.255.0 standby 192.168.1.2
+no shutdown
+exit
+
+interface GigabitEthernet0/1
+nameif outside
+security-level 0
+ip address 192.168.101.101 255.255.255.0 standby 192.168.101.2
+no shutdown
+exit
+
+dhcpd address 192.168.1.100-192.168.1.254 inside
+dhcpd dns 8.8.8.8 interface inside
+dhcpd enable inside
+
+route outside 0.0.0.0 0.0.0.0 192.168.101.1 1
+
+object network OBJ_ANY_INSIDE
+subnet 0.0.0.0 0.0.0.0
+nat (inside,outside) dynamic interface
+exit
+
+configure terminal
+interface GigabitEthernet0/6
+no shutdown
+exit
+
+policy-map global_policy
+class inspection_default
+inspect icmp
+inspect http
+exit
+exit
+
+failover lan unit primary
+failover lan interface folink GigabitEthernet0/6
+failover interface ip folink 10.0.0.1 255.255.255.0 standby 10.0.0.2
+failover key secret
+failover link folink GigabitEthernet0/6
+monitor-interface inside
+monitor-interface outside
+no monitor-interface mgmt
+failover
+
+
+Cấu hình trên ASAv3 (Thiết bị Secondary)
+
+configure terminal
+hostname ASAv3
+
+interface Management0/0
+nameif mgmt
+security-level 100
+ip address 192.168.137.102 255.255.255.0
+no shutdown
+exit
+
+configure terminal
+interface GigabitEthernet0/6
+no shutdown
+exit
+
+http server enable
+http 192.168.137.0 255.255.255.0 mgmt
+username admin password cisco privilege 15
+
+failover lan unit secondary
+failover lan interface folink GigabitEthernet0/6
+failover interface ip folink 10.0.0.1 255.255.255.0 standby 10.0.0.2
+failover key secret
+failover link folink GigabitEthernet0/6
+no monitor-interface mgmt
+failover
+
+CÁC CÂU LỆNH BỔ SUNG ĐỂ CẤU HÌNH FTP SERVER TRONG LAB
+Nếu bạn sử dụng VPCS (máy ảo PC mặc định của GNS3/EVE-NG) để làm FTP Server giả lập (chỉ dùng để test Ping/Routing):
+
+ip 192.168.101.2 255.255.255.0 192.168.101.101
+save
+
+Nếu bạn sử dụng một Máy ảo Linux/Windows thật làm FTP Server để chạy phần mềm FTP (như FileZilla Server) để test tính năng Stateful Failover tải file:
+
+netsh interface ip set address name="Ethernet" static 192.168.101.2 255.255.255.0 192.168.101.101
+
+
+
+
+1. Kiểm tra bảng cấu hình mạng đã đồng bộ sang thiết bị Standby chưa
+show failover
+show running-config interface GigabitEthernet0/0 (Chạy trên thiết bị hiển thị Secondary - Standby Ready) 
+show running-config interface GigabitEthernet0/1
+
+2. Kịch bản test Ép buộc chuyển giao quyền chủ động (Switchover) bằng lệnh
+(Gõ lệnh này trên thiết bị đang là Standby Ready để ép nó lên giành quyền làm Active)
+failover active
+show failover state
+
+3.Cấu hình thêm các dịch vụ cần thiết trên con đang Active để test đồng bộ sang con Primary
+
+configure terminal
+
+dhcpd address 192.168.1.100-192.168.1.254 inside
+dhcpd dns 8.8.8.8 interface inside
+dhcpd enable inside
+
+route outside 0.0.0.0 0.0.0.0 192.168.101.1 1
+
+object network OBJ_ANY_INSIDE
+ subnet 0.0.0.0 0.0.0.0
+ nat (inside,outside) dynamic interface
+exit
+
+policy-map global_policy
+ class inspection_default
+  inspect icmp
+  inspect http
+exit
+exit
+
+write memory
