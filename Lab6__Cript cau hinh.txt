@@ -146,3 +146,10 @@ exit
 exit
 
 write memory
+
+
+Tren Switch outside (neu can) 
+interface range gi0/0-2
+ spanning-tree portfast
+exit
+
